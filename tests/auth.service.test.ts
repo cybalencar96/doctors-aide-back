@@ -35,7 +35,9 @@ describe('POST /login-medico', () => {
     expect(response.statusCode).toBe(200)
     const body = JSON.parse(response.payload)
     expect(body.token).toBeDefined()
-    expect(body.medico_id).toBe('uuid-123')
+    expect(body.id).toBe('uuid-123')
+    expect(body.nome_completo).toBe('Dr. João')
+    expect(body.crm).toBe('12345')
   })
 
   it('should return 404 when doctor not found', async () => {

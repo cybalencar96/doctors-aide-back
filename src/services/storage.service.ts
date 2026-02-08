@@ -1,11 +1,11 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { MultipartFile } from '@fastify/multipart'
 
 const STORAGE_DIR = join(process.cwd(), 'storage')
 
 export async function saveFiles(atendimentoId: string, files: MultipartFile[]): Promise<string[]> {
-  const dir = join(STORAGE_DIR, atendimentoId)
+  const dir = join(STORAGE_DIR, atendimentoId, 'arquivos')
   await mkdir(dir, { recursive: true })
 
   const paths: string[] = []
@@ -18,4 +18,20 @@ export async function saveFiles(atendimentoId: string, files: MultipartFile[]): 
   }
 
   return paths
+}
+
+export async function saveAudio(atendimentoId: string, file: MultipartFile): Promise<string> {
+  const dir = join(STORAGE_DIR, atendimentoId, 'audio')
+  await mkdir(dir, { recursive: true })
+
+  const buffer = await file.toBuffer()
+  const filePath = join(dir, file.filename)
+  await writeFile(filePath, buffer)
+
+  return filePath
+}
+
+export async function readFileContent(filePath: string): Promise<string> {
+  const buffer = await readFile(filePath)
+  return buffer.toString('utf-8')
 }

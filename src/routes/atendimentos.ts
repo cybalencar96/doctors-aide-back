@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
+import type { MultipartFile } from '@fastify/multipart'
 import { processarAtendimentoSchema } from '../schemas/atendimento.schema.js'
-import { saveFiles } from '../services/storage.service.js'
-import { processarAtendimento } from '../services/n8n.service.js'
+import { saveFiles, saveAudio, readFileContent } from '../services/storage.service.js'
+import { transcribeAudio } from '../services/ai/ai-client.js'
+import { runAgents } from '../services/ai/agents.js'
 
 export default async function atendimentosRoutes(fastify: FastifyInstance) {
   fastify.addHook('onRequest', fastify.authenticate)
@@ -36,13 +38,18 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
   fastify.post('/processar-atendimento', async (request, reply) => {
     const parts = request.parts()
     const fields: Record<string, string> = {}
-    const files: Parameters<typeof saveFiles>[1] = []
+    const arquivoFiles: MultipartFile[] = []
+    let audioFile: MultipartFile | null = null
 
     for await (const part of parts) {
       if (part.type === 'field') {
         fields[part.fieldname] = part.value as string
       } else if (part.type === 'file') {
-        files.push(part)
+        if (part.fieldname === 'audio') {
+          audioFile = part
+        } else {
+          arquivoFiles.push(part)
+        }
       }
     }
 
@@ -52,41 +59,82 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
     }
 
     const user = request.user
-    const { paciente_id, texto_historico, texto_consulta_atual } = parsed.data
+    const { paciente_id, paciente_nome, consulta_anterior, observacoes } = parsed.data
 
+    // 1. Cria atendimento no banco
     const atendimento = await fastify.prisma.atendimento_mvp.create({
       data: {
         medico_id: user.medico_id,
         paciente_id,
-        texto_historico,
-        texto_consulta_atual,
+        texto_consulta_atual: observacoes,
+        texto_historico: consulta_anterior,
         arquivos: [],
       },
     })
 
-    let arquivos: string[] = []
-    if (files.length > 0) {
-      arquivos = await saveFiles(atendimento.id, files)
-      await fastify.prisma.atendimento_mvp.update({
-        where: { id: atendimento.id },
-        data: { arquivos },
-      })
-    }
-
     try {
-      const result = await processarAtendimento({
-        atendimento_id: atendimento.id,
-        medico_id: user.medico_id,
-        paciente_id,
-        texto_historico,
-        texto_consulta_atual,
-        arquivos,
+      // 2. Salva arquivos + áudio no disco
+      let arquivoPaths: string[] = []
+      let audioPath: string | null = null
+
+      if (arquivoFiles.length > 0) {
+        arquivoPaths = await saveFiles(atendimento.id, arquivoFiles)
+        await fastify.prisma.atendimento_mvp.update({
+          where: { id: atendimento.id },
+          data: { arquivos: arquivoPaths },
+        })
+      }
+
+      if (audioFile) {
+        audioPath = await saveAudio(atendimento.id, audioFile)
+      }
+
+      // 3. Transcreve áudio
+      let transcricao = ''
+      if (audioPath) {
+        transcricao = await transcribeAudio(audioPath)
+      }
+
+      // 4. Lê conteúdo dos arquivos
+      const conteudoArquivos: string[] = []
+      for (const filePath of arquivoPaths) {
+        try {
+          const content = await readFileContent(filePath)
+          conteudoArquivos.push(content)
+        } catch {
+          // Arquivo binário ou ilegível — ignora
+        }
+      }
+
+      // 5. Monta contexto
+      const partes: string[] = []
+
+      if (observacoes) {
+        partes.push(`Observações do médico:\n${observacoes}`)
+      }
+      if (transcricao) {
+        partes.push(`Transcrição do áudio:\n${transcricao}`)
+      }
+      if (conteudoArquivos.length > 0) {
+        partes.push(`Conteúdo dos arquivos:\n${conteudoArquivos.join('\n\n---\n\n')}`)
+      }
+      if (paciente_nome) {
+        partes.push(`Nome do paciente: ${paciente_nome}`)
+      }
+
+      const contexto = partes.join('\n\n')
+
+      // 6-8. Roda agentes e concatena resultado
+      const resultado = await runAgents({
+        contexto,
+        consulta_anterior: consulta_anterior ?? '',
       })
 
+      // 9. Salva no banco
       const updated = await fastify.prisma.atendimento_mvp.update({
         where: { id: atendimento.id },
         data: {
-          prontuario: result.prontuario_texto,
+          prontuario: resultado,
           status: 'concluido',
           data_fim: new Date(),
         },
@@ -99,7 +147,7 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
         data: { status: 'erro' },
       })
 
-      fastify.log.error(err, 'Erro ao processar atendimento via n8n')
+      fastify.log.error(err, 'Erro ao processar atendimento')
       return reply.status(502).send({
         error: 'Erro ao processar atendimento',
         atendimento_id: atendimento.id,

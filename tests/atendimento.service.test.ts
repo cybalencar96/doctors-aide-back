@@ -3,12 +3,19 @@ import Fastify from 'fastify'
 import jwtPlugin from '../src/plugins/jwt.js'
 import atendimentosRoutes from '../src/routes/atendimentos.js'
 
-vi.mock('../src/services/n8n.service.js', () => ({
-  processarAtendimento: vi.fn().mockResolvedValue({ prontuario_texto: 'Prontuário gerado' }),
+vi.mock('../src/services/ai/ai-client.js', () => ({
+  chatCompletion: vi.fn().mockResolvedValue('Resultado do agente'),
+  transcribeAudio: vi.fn().mockResolvedValue('Transcrição do áudio'),
+}))
+
+vi.mock('../src/services/ai/agents.js', () => ({
+  runAgents: vi.fn().mockResolvedValue('Prontuário gerado pelos agentes'),
 }))
 
 vi.mock('../src/services/storage.service.js', () => ({
-  saveFiles: vi.fn().mockResolvedValue(['/storage/id/file.pdf']),
+  saveFiles: vi.fn().mockResolvedValue(['/storage/id/arquivos/file.pdf']),
+  saveAudio: vi.fn().mockResolvedValue('/storage/id/audio/audio.mp3'),
+  readFileContent: vi.fn().mockResolvedValue('conteúdo do arquivo'),
 }))
 
 function buildTestApp(prismaOverride: any) {

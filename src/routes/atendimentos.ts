@@ -12,9 +12,25 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
     const atendimentos = await fastify.prisma.atendimento_mvp.findMany({
       where: { medico_id: id },
       orderBy: { data_inicio: 'desc' },
+      include: { paciente: true },
     })
 
-    return atendimentos
+    return atendimentos.map((a) => ({
+      atendimento_id: a.id,
+      data_inicio: a.data_inicio,
+      status: a.status,
+      paciente: {
+        id: a.paciente.id,
+        nome: a.paciente.nome_completo,
+        data_nascimento: a.paciente.data_nascimento,
+        sexo: a.paciente.sexo,
+        cpf: a.paciente.cpf,
+        telefone: a.paciente.telefone,
+        email: a.paciente.email,
+      },
+      prontuario: a.prontuario,
+      documentos: a.arquivos,
+    }))
   })
 
   fastify.post('/processar-atendimento', async (request, reply) => {

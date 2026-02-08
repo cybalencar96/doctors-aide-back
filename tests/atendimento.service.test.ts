@@ -34,7 +34,18 @@ describe('GET /medico/:id/atendimentos', () => {
             medico_id: 'uuid-med-1',
             paciente_id: 'uuid-pac-1',
             status: 'concluido',
+            prontuario: 'Prontuário gerado',
             data_inicio: new Date(),
+            arquivos: [],
+            paciente: {
+              id: 'uuid-pac-1',
+              nome_completo: 'João Silva',
+              data_nascimento: new Date('1990-01-15'),
+              sexo: 'M',
+              cpf: '12345678901',
+              telefone: '11999999999',
+              email: 'joao@email.com',
+            },
           },
         ]),
       },
@@ -51,7 +62,9 @@ describe('GET /medico/:id/atendimentos', () => {
     expect(response.statusCode).toBe(200)
     const body = JSON.parse(response.payload)
     expect(body).toHaveLength(1)
-    expect(body[0].id).toBe('uuid-at-1')
+    expect(body[0].atendimento_id).toBe('uuid-at-1')
+    expect(body[0].paciente.id).toBe('uuid-pac-1')
+    expect(body[0].paciente.nome).toBe('João Silva')
   })
 })
 

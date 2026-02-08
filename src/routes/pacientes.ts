@@ -47,4 +47,18 @@ export default async function pacientesRoutes(fastify: FastifyInstance) {
 
     return pacientes
   })
+
+  fastify.get('/medico/:id/pacientes', async (request, reply) => {
+    const { id } = request.params as { id: string }
+
+    const pacientes = await fastify.prisma.paciente.findMany({
+      where: {
+        atendimentos: {
+          some: { medico_id: id },
+        },
+      },
+    })
+
+    return pacientes
+  })
 }

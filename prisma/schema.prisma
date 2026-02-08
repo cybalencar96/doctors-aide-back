@@ -1,0 +1,48 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model medico {
+  id            String            @id @default(uuid())
+  nome_completo String
+  crm           String
+  uf_crm        String
+  ativo         Boolean           @default(true)
+  created_at    DateTime          @default(now())
+  atendimentos  atendimento_mvp[]
+
+  @@unique([crm, uf_crm])
+}
+
+model paciente {
+  id              String            @id @default(uuid())
+  nome_completo   String
+  cpf             String            @unique
+  data_nascimento DateTime
+  sexo            String
+  telefone        String?
+  email           String?
+  created_at      DateTime          @default(now())
+  atendimentos    atendimento_mvp[]
+}
+
+model atendimento_mvp {
+  id                   String    @id @default(uuid())
+  medico_id            String
+  paciente_id          String
+  texto_historico      String?
+  texto_consulta_atual String?
+  status               String    @default("em_processamento")
+  prontuario           String?
+  data_inicio          DateTime  @default(now())
+  data_fim             DateTime?
+  arquivos             String[]
+
+  medico   medico   @relation(fields: [medico_id], references: [id])
+  paciente paciente @relation(fields: [paciente_id], references: [id])
+}

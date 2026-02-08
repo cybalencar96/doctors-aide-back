@@ -16,6 +16,7 @@ export default async function pacientesRoutes(fastify: FastifyInstance) {
       const paciente = await fastify.prisma.paciente.create({
         data: {
           ...rest,
+          medico_id: request.user.medico_id,
           data_nascimento: new Date(data_nascimento),
         },
       })
@@ -37,6 +38,7 @@ export default async function pacientesRoutes(fastify: FastifyInstance) {
 
     const pacientes = await fastify.prisma.paciente.findMany({
       where: {
+        medico_id: request.user.medico_id,
         nome_completo: {
           contains: query,
           mode: 'insensitive',
@@ -52,11 +54,7 @@ export default async function pacientesRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string }
 
     const pacientes = await fastify.prisma.paciente.findMany({
-      where: {
-        atendimentos: {
-          some: { medico_id: id },
-        },
-      },
+      where: { medico_id: id },
     })
 
     return pacientes

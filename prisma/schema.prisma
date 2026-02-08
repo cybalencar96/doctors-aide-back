@@ -15,20 +15,25 @@ model medico {
   ativo         Boolean           @default(true)
   created_at    DateTime          @default(now())
   atendimentos  atendimento_mvp[]
+  pacientes     paciente[]
 
   @@unique([crm, uf_crm])
 }
 
 model paciente {
   id              String            @id @default(uuid())
+  medico_id       String
   nome_completo   String
-  cpf             String            @unique
+  cpf             String
   data_nascimento DateTime
   sexo            String
   telefone        String?
   email           String?
   created_at      DateTime          @default(now())
   atendimentos    atendimento_mvp[]
+  medico          medico            @relation(fields: [medico_id], references: [id])
+
+  @@unique([cpf, medico_id])
 }
 
 model atendimento_mvp {

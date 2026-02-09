@@ -4,3 +4,5 @@ storage/
 generated/
 .env
 *.log
+*.traineddata
+claude instruction.md

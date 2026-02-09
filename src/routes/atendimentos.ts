@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { processarAtendimentoSchema } from '../schemas/atendimento.schema.js'
-import { saveBufferedFiles, saveBufferedAudio, readFileContent } from '../services/storage.service.js'
+import { saveBufferedFiles, saveBufferedAudio } from '../services/storage.service.js'
+import { processFiles } from '../services/file-processor.service.js'
 import { transcribeAudio } from '../services/ai/ai-client.js'
 import { runAgents } from '../services/ai/agents.js'
 
@@ -128,16 +129,9 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
           transcricao = await transcribeAudio(audioPath)
         }
 
-        // Lê conteúdo dos arquivos
-        const conteudoArquivos: string[] = []
-        for (const filePath of arquivoPaths) {
-          try {
-            const content = await readFileContent(filePath)
-            conteudoArquivos.push(content)
-          } catch {
-            // Arquivo binário ou ilegível — ignora
-          }
-        }
+        // Processa arquivos (PDF, imagem, texto)
+        const fileResults = await processFiles(arquivoPaths)
+        const conteudoArquivos = fileResults.map(r => `[${r.filename}]\n${r.text}`)
 
         // Monta contexto
         const partes: string[] = []

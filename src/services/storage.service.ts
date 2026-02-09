@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const STORAGE_DIR = join(process.cwd(), 'storage')
@@ -31,9 +31,4 @@ export async function saveBufferedAudio(atendimentoId: string, file: BufferedFil
   await writeFile(filePath, file.buffer)
 
   return filePath
-}
-
-export async function readFileContent(filePath: string): Promise<string> {
-  const buffer = await readFile(filePath)
-  return buffer.toString('utf-8')
 }

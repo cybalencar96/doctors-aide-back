@@ -8,11 +8,24 @@ import authRoutes from './routes/auth.js'
 import pacientesRoutes from './routes/pacientes.js'
 import atendimentosRoutes from './routes/atendimentos.js'
 
+const isProduction = process.env.NODE_ENV === 'production'
+
+const PRODUCTION_ORIGINS = [
+  'https://ia.secretariapicones.com',
+]
+
+function getAllowedOrigins(): string[] {
+  if (isProduction) return PRODUCTION_ORIGINS
+  
+  const port = process.env.FRONTEND_PORT || '5173'
+  return [`http://localhost:${port}`]
+}
+
 export async function buildApp() {
   const app = Fastify({ logger: true })
 
   await app.register(cors, {
-    origin: ['https://doctor-s-aide.onrender.com', 'https://ia.secretariapicones.com'],
+    origin: getAllowedOrigins(),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

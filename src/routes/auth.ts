@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { loginSchema } from '../schemas/medico.schema.js'
 
+// Authentication routes
 export default async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/login-medico', async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body)

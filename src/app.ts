@@ -12,7 +12,7 @@ export async function buildApp() {
   const app = Fastify({ logger: true })
 
   await app.register(cors, {
-    origin: ['https://doctor-s-aide.onrender.com', 'https://ia.secretariapicones.com.br'],
+    origin: ['https://doctor-s-aide.onrender.com', 'https://ia.secretariapicones.com'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,

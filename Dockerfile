@@ -20,8 +20,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Copy source and prisma schema
+# Copy source, prisma schema and config
 COPY prisma ./prisma
+COPY prisma.config.ts ./
 COPY src ./src
 COPY tsconfig.json ./
 

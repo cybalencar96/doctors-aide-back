@@ -53,6 +53,7 @@ async function preprocessForOcr(
     .grayscale()
     .normalize()
     .sharpen()
+    .withMetadata({ density: 300 })
     .png()
     .toBuffer()
 }

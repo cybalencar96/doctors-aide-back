@@ -11,7 +11,12 @@ import atendimentosRoutes from './routes/atendimentos.js'
 export async function buildApp() {
   const app = Fastify({ logger: true })
 
-  await app.register(cors, { origin: true })
+  await app.register(cors, {
+    origin: ['https://doctor-s-aide.onrender.com'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  })
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' })
 
   await app.register(prismaPlugin)

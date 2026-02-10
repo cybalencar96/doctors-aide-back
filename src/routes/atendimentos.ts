@@ -4,6 +4,7 @@ import { saveBufferedFiles, saveBufferedAudio } from '../services/storage.servic
 import { processFiles } from '../services/file-processor.service.js'
 import { transcribeAudio } from '../services/ai/ai-client.js'
 import { runAgents } from '../services/ai/agents.js'
+import { AppError, HttpStatus, errorMessage } from '../errors.js'
 
 interface BufferedFile {
   buffer: Buffer
@@ -16,11 +17,17 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
   fastify.get('/medico/:id/atendimentos', async (request, reply) => {
     const { id } = request.params as { id: string }
 
-    const atendimentos = await fastify.prisma.atendimento_mvp.findMany({
-      where: { medico_id: id },
-      orderBy: { data_inicio: 'desc' },
-      include: { paciente: true },
-    })
+    let atendimentos
+    try {
+      atendimentos = await fastify.prisma.atendimento_mvp.findMany({
+        where: { medico_id: id },
+        orderBy: { data_inicio: 'desc' },
+        include: { paciente: true },
+      })
+    } catch (err) {
+      fastify.log.error({ err, medico_id: id }, 'Erro ao listar atendimentos')
+      throw new AppError(HttpStatus.INTERNAL_SERVER_ERROR, 'Erro ao listar atendimentos')
+    }
 
     return atendimentos.map((a) => ({
       atendimento_id: a.id,
@@ -61,32 +68,36 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
       }
     } catch (err) {
       fastify.log.error(err, 'Erro ao processar upload multipart')
-      return reply.status(413).send({
+      return reply.status(HttpStatus.PAYLOAD_TOO_LARGE).send({
         error: 'Erro no upload dos arquivos. Verifique o tamanho máximo (50 MB por arquivo, 10 arquivos).',
       })
     }
 
     const parsed = processarAtendimentoSchema.safeParse(fields)
     if (!parsed.success) {
-      return reply.status(400).send({ error: 'Dados inválidos', details: parsed.error.flatten() })
+      return reply.status(HttpStatus.BAD_REQUEST).send({ error: 'Dados inválidos', details: parsed.error.flatten() })
     }
 
     const user = request.user
     const { paciente_id, paciente_nome, consulta_anterior, observacoes } = parsed.data
 
-    // 1. Cria atendimento no banco
-    const atendimento = await fastify.prisma.atendimento_mvp.create({
-      data: {
-        medico_id: user.medico_id,
-        paciente_id,
-        texto_consulta_atual: observacoes,
-        texto_historico: consulta_anterior,
-        arquivos: [],
-        status: 'processando',
-      },
-    })
+    let atendimento
+    try {
+      atendimento = await fastify.prisma.atendimento_mvp.create({
+        data: {
+          medico_id: user.medico_id,
+          paciente_id,
+          texto_consulta_atual: observacoes,
+          texto_historico: consulta_anterior,
+          arquivos: [],
+          status: 'processando',
+        },
+      })
+    } catch (err) {
+      fastify.log.error({ err, medico_id: user.medico_id, paciente_id }, 'Erro ao criar atendimento')
+      throw new AppError(HttpStatus.INTERNAL_SERVER_ERROR, 'Erro ao criar atendimento')
+    }
 
-    // 2. Salva arquivos + áudio no disco (antes de responder, pois o stream precisa ser consumido)
     let arquivoPaths: string[] = []
     let audioPath: string | null = null
 
@@ -108,56 +119,40 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
         where: { id: atendimento.id },
         data: { status: 'erro' },
       })
-      return reply.status(500).send({
+      return reply.status(HttpStatus.INTERNAL_SERVER_ERROR).send({
         error: 'Erro ao salvar arquivos',
         atendimento_id: atendimento.id,
       })
     }
 
-    // 3. Responde imediatamente — processamento dos agentes de IA ocorre em background
-    reply.status(202).send({
+    reply.status(HttpStatus.ACCEPTED).send({
       atendimento_id: atendimento.id,
       status: 'processando',
     })
 
-    // 4. Processamento assíncrono em background
     const processInBackground = async () => {
       try {
-        // Transcreve áudio
         let transcricao = ''
         if (audioPath) {
           transcricao = await transcribeAudio(audioPath)
         }
 
-        // Processa arquivos (PDF, imagem, texto)
         const fileResults = await processFiles(arquivoPaths)
         const conteudoArquivos = fileResults.map(r => `[${r.filename}]\n${r.text}`)
 
-        // Monta contexto
         const partes: string[] = []
-
-        if (observacoes) {
-          partes.push(`Observações do médico:\n${observacoes}`)
-        }
-        if (transcricao) {
-          partes.push(`Transcrição do áudio:\n${transcricao}`)
-        }
-        if (conteudoArquivos.length > 0) {
-          partes.push(`Conteúdo dos arquivos:\n${conteudoArquivos.join('\n\n---\n\n')}`)
-        }
-        if (paciente_nome) {
-          partes.push(`Nome do paciente: ${paciente_nome}`)
-        }
+        if (observacoes) partes.push(`Observações do médico:\n${observacoes}`)
+        if (transcricao) partes.push(`Transcrição do áudio:\n${transcricao}`)
+        if (conteudoArquivos.length > 0) partes.push(`Conteúdo dos arquivos:\n${conteudoArquivos.join('\n\n---\n\n')}`)
+        if (paciente_nome) partes.push(`Nome do paciente: ${paciente_nome}`)
 
         const contexto = partes.join('\n\n')
 
-        // Roda agentes e concatena resultado
         const resultado = await runAgents({
           contexto,
           consulta_anterior: consulta_anterior ?? '',
         })
 
-        // Salva no banco
         await fastify.prisma.atendimento_mvp.update({
           where: { id: atendimento.id },
           data: {
@@ -169,12 +164,18 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
 
         fastify.log.info({ atendimento_id: atendimento.id }, 'Atendimento processado com sucesso')
       } catch (err) {
-        fastify.log.error(err, 'Erro ao processar atendimento em background')
+        fastify.log.error(
+          { err: errorMessage(err), atendimento_id: atendimento.id },
+          'Erro ao processar atendimento em background',
+        )
         await fastify.prisma.atendimento_mvp.update({
           where: { id: atendimento.id },
           data: { status: 'erro' },
-        }).catch((dbErr) => {
-          fastify.log.error(dbErr, 'Erro ao atualizar status para erro')
+        }).catch((dbErr: unknown) => {
+          fastify.log.error(
+            { err: errorMessage(dbErr), atendimento_id: atendimento.id },
+            'Erro ao atualizar status para erro no banco',
+          )
         })
       }
     }
@@ -185,12 +186,18 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
   fastify.get('/atendimento/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
 
-    const atendimento = await fastify.prisma.atendimento_mvp.findUnique({
-      where: { id },
-    })
+    let atendimento
+    try {
+      atendimento = await fastify.prisma.atendimento_mvp.findUnique({
+        where: { id },
+      })
+    } catch (err) {
+      fastify.log.error({ err, atendimento_id: id }, 'Erro ao buscar atendimento')
+      throw new AppError(HttpStatus.INTERNAL_SERVER_ERROR, 'Erro ao buscar atendimento')
+    }
 
     if (!atendimento) {
-      return reply.status(404).send({ error: 'Atendimento não encontrado' })
+      return reply.status(HttpStatus.NOT_FOUND).send({ error: 'Atendimento não encontrado' })
     }
 
     return { status: atendimento.status, prontuario: atendimento.prontuario }

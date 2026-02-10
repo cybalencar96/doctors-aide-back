@@ -1,4 +1,5 @@
 import { chatCompletion } from './ai-client.js'
+import { AppError, HttpStatus, errorMessage } from '../../errors.js'
 import { SYSTEM_PROMPT as EXTRACT_DRUGS } from './prompts/01-extract-drugs.js'
 import { SYSTEM_PROMPT as ANALYZE_NUTRITION } from './prompts/02-analyze-nutrition.js'
 import { SYSTEM_PROMPT as EXTRACT_EXERCISE } from './prompts/03-extract-exercise.js'
@@ -15,15 +16,22 @@ export interface AgentsInput {
   consulta_anterior: string
 }
 
+const AGENT_NAMES = [
+  'Extrair Medicamentos',
+  'Analisar Nutrição',
+  'Extrair Exercícios',
+  'Composição Corporal',
+  'Exames Laboratoriais',
+  'Extrair Sentimentos',
+  'Extrair Sono',
+  'Evolução',
+  'Resumo Histórico',
+]
+
 export async function runAgents(input: AgentsInput): Promise<string> {
   const { contexto, consulta_anterior } = input
 
-  // Fase 1: Agentes 1-8 + Agente 9 em paralelo
-  const [
-    agent1, agent2, agent3, agent4,
-    agent5, agent6, agent7, agent8,
-    agent9,
-  ] = await Promise.all([
+  const settled = await Promise.allSettled([
     chatCompletion(EXTRACT_DRUGS, contexto),
     chatCompletion(ANALYZE_NUTRITION, contexto),
     chatCompletion(EXTRACT_EXERCISE, contexto),
@@ -35,16 +43,31 @@ export async function runAgents(input: AgentsInput): Promise<string> {
     chatCompletion(SUMMARIZE_HISTORY, consulta_anterior),
   ])
 
-  // Fase 2: Agente 10 recebe contexto + output do agente 9
-  const agent10Input = [contexto, '\n\n--- Resumo do Histórico ---\n\n', agent9].join('')
-  const agent10 = await chatCompletion(CLINICAL_SUMMARY, agent10Input)
+  const results = settled.map((result, i) => {
+    if (result.status === 'fulfilled') {
+      return result.value
+    }
+    console.error(`Agente "${AGENT_NAMES[i]}" falhou:`, errorMessage(result.reason))
+    return ''
+  })
 
-  // Concatena na ordem: 9 → 2 → 3 → 1 → 4 → 5 → 6 → 7 → 8 → 10
-  const resultado = [
+  if (results.every(r => r === '')) {
+    throw new AppError(HttpStatus.BAD_GATEWAY, 'Todos os agentes de IA falharam')
+  }
+
+  const [agent1, agent2, agent3, agent4, agent5, agent6, agent7, agent8, agent9] = results
+
+  let agent10 = ''
+  try {
+    const agent10Input = [contexto, '\n\n--- Resumo do Histórico ---\n\n', agent9].join('')
+    agent10 = await chatCompletion(CLINICAL_SUMMARY, agent10Input)
+  } catch (err) {
+    console.error('Agente "Resumo Clínico" falhou:', errorMessage(err))
+  }
+
+  return [
     agent9, agent2, agent3, agent1,
     agent4, agent5, agent6, agent7,
     agent8, agent10,
   ].join('\n\n')
-
-  return resultado
 }

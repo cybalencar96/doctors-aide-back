@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin'
 import fastifyJwt from '@fastify/jwt'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import { HttpStatus } from '../errors.js'
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -24,7 +25,7 @@ export default fp(async (fastify: FastifyInstance) => {
     try {
       await request.jwtVerify()
     } catch {
-      reply.status(401).send({ error: 'Token inválido ou ausente' })
+      return reply.status(HttpStatus.UNAUTHORIZED).send({ error: 'Token inválido ou ausente' })
     }
   })
 })

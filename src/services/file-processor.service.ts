@@ -4,6 +4,7 @@ import { PDFParse } from 'pdf-parse'
 import { pdf } from 'pdf-to-img'
 import sharp from 'sharp'
 import { createWorker, type Worker } from 'tesseract.js'
+import { errorMessage } from '../errors.js'
 
 export interface FileProcessingResult {
   filename: string
@@ -37,7 +38,11 @@ let worker: Worker | null = null
 
 async function getWorker(): Promise<Worker> {
   if (!worker) {
-    worker = await createWorker('por')
+    try {
+      worker = await createWorker('por')
+    } catch (err) {
+      throw new Error(`Falha ao inicializar Tesseract OCR: ${errorMessage(err)}`)
+    }
   }
   return worker
 }
@@ -65,28 +70,40 @@ async function processPdf(
   buffer: Buffer,
 ): Promise<FileProcessingResult> {
   // 1. Try digital text extraction
-  const parser = new PDFParse({ data: new Uint8Array(buffer) })
-  const result = await parser.getText()
-  const digitalText = result.text.trim()
+  try {
+    const parser = new PDFParse({ data: new Uint8Array(buffer) })
+    const result = await parser.getText()
+    const digitalText = result.text.trim()
 
-  if (digitalText.length > 50) {
-    return { filename, text: digitalText }
+    if (digitalText.length > 50) {
+      return { filename, text: digitalText }
+    }
+  } catch (err) {
+    console.error(`Erro ao extrair texto digital de ${filename}:`, errorMessage(err))
   }
 
   // 2. Scanned PDF → render pages and OCR
   const ocrTexts: string[] = []
-  const doc = await pdf(buffer)
-  const maxPages = Math.min(doc.length, 10)
+  try {
+    const doc = await pdf(buffer)
+    const maxPages = Math.min(doc.length, 10)
 
-  for (let i = 1; i <= maxPages; i++) {
-    const pageBuffer = await doc.getPage(i)
-    const preprocessed = await preprocessForOcr(Buffer.from(pageBuffer), 2000)
-    const w = await getWorker()
-    const { data } = await w.recognize(preprocessed)
+    for (let i = 1; i <= maxPages; i++) {
+      try {
+        const pageBuffer = await doc.getPage(i)
+        const preprocessed = await preprocessForOcr(Buffer.from(pageBuffer), 2000)
+        const w = await getWorker()
+        const { data } = await w.recognize(preprocessed)
 
-    if (data.confidence >= 50 && data.text.trim().length > 30) {
-      ocrTexts.push(data.text.trim())
+        if (data.confidence >= 50 && data.text.trim().length > 30) {
+          ocrTexts.push(data.text.trim())
+        }
+      } catch (pageErr) {
+        console.error(`Erro ao processar página ${i} de ${filename}:`, errorMessage(pageErr))
+      }
     }
+  } catch (err) {
+    console.error(`Erro ao renderizar PDF para OCR ${filename}:`, errorMessage(err))
   }
 
   if (ocrTexts.length > 0) {
@@ -100,12 +117,16 @@ async function processImage(
   filename: string,
   buffer: Buffer,
 ): Promise<FileProcessingResult> {
-  const preprocessed = await preprocessForOcr(buffer, 1500)
-  const w = await getWorker()
-  const { data } = await w.recognize(preprocessed)
+  try {
+    const preprocessed = await preprocessForOcr(buffer, 1500)
+    const w = await getWorker()
+    const { data } = await w.recognize(preprocessed)
 
-  if (data.confidence >= 50 && data.text.trim().length > 30) {
-    return { filename, text: data.text.trim() }
+    if (data.confidence >= 50 && data.text.trim().length > 30) {
+      return { filename, text: data.text.trim() }
+    }
+  } catch (err) {
+    console.error(`Erro ao processar imagem ${filename}:`, errorMessage(err))
   }
 
   return { filename, text: `[Imagem clínica anexada: ${filename}]` }
@@ -127,18 +148,23 @@ export async function processFiles(
 
   for (const filePath of filePaths) {
     const filename = basename(filePath)
-    const buffer = await readFile(filePath)
-    const type = detectFileType(filename, buffer)
+    try {
+      const buffer = await readFile(filePath)
+      const type = detectFileType(filename, buffer)
 
-    switch (type) {
-      case 'pdf':
-        results.push(await processPdf(filename, buffer))
-        break
-      case 'image':
-        results.push(await processImage(filename, buffer))
-        break
-      default:
-        results.push(processText(filename, buffer))
+      switch (type) {
+        case 'pdf':
+          results.push(await processPdf(filename, buffer))
+          break
+        case 'image':
+          results.push(await processImage(filename, buffer))
+          break
+        default:
+          results.push(processText(filename, buffer))
+      }
+    } catch (err) {
+      console.error(`Erro ao processar arquivo ${filename}:`, errorMessage(err))
+      results.push({ filename, text: `[Erro ao processar arquivo: ${filename}]` })
     }
   }
 

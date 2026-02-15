@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { cadastrarPacienteSchema } from '../schemas/paciente.schema.js'
-import { AppError, HttpStatus, isErrorWithCode } from '../errors.js'
+import { AppError, HttpStatus, isErrorWithCode, isValidUUID } from '../errors.js'
 
 export default async function pacientesRoutes(fastify: FastifyInstance) {
   fastify.addHook('onRequest', fastify.authenticate)
@@ -26,7 +26,8 @@ export default async function pacientesRoutes(fastify: FastifyInstance) {
       if (isErrorWithCode(err) && err.code === 'P2002') {
         return reply.status(HttpStatus.CONFLICT).send({ error: 'CPF já cadastrado' })
       }
-      throw err
+      fastify.log.error({ err }, 'Erro ao cadastrar paciente')
+      throw new AppError(HttpStatus.INTERNAL_SERVER_ERROR, 'Erro ao cadastrar paciente')
     }
   })
 
@@ -58,6 +59,14 @@ export default async function pacientesRoutes(fastify: FastifyInstance) {
 
   fastify.get('/medico/:id/pacientes', async (request, reply) => {
     const { id } = request.params as { id: string }
+
+    if (!isValidUUID(id)) {
+      return reply.status(HttpStatus.BAD_REQUEST).send({ error: 'ID inválido' })
+    }
+
+    if (id !== request.user.medico_id) {
+      return reply.status(HttpStatus.FORBIDDEN).send({ error: 'Acesso negado' })
+    }
 
     try {
       const pacientes = await fastify.prisma.paciente.findMany({

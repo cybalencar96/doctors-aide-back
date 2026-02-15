@@ -43,6 +43,7 @@ model atendimento_mvp {
   texto_historico      String?
   texto_consulta_atual String?
   status               String    @default("em_processamento")
+  erro                 String?
   prontuario           String?
   data_inicio          DateTime  @default(now())
   data_fim             DateTime?

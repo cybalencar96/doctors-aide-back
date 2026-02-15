@@ -10,9 +10,9 @@ import atendimentosRoutes from './routes/atendimentos.js'
 import { AppError, HttpStatus } from './errors.js'
 import { Prisma } from '../generated/prisma/client.js'
 
-const PRISMA_STATUS_MAP: Record<string, HttpStatus> = {
-  P2002: HttpStatus.CONFLICT,
-  P2025: HttpStatus.NOT_FOUND,
+const PRISMA_ERROR_MAP: Record<string, { status: HttpStatus; message: string }> = {
+  P2002: { status: HttpStatus.CONFLICT, message: 'Conflito: registro já existe' },
+  P2025: { status: HttpStatus.NOT_FOUND, message: 'Registro não encontrado' },
 }
 
 const isProduction = process.env.NODE_ENV === 'production'
@@ -60,8 +60,12 @@ export async function buildApp() {
     }
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      const status = PRISMA_STATUS_MAP[error.code] ?? HttpStatus.INTERNAL_SERVER_ERROR
-      return reply.status(status).send({ error: error.message })
+      const mapped = PRISMA_ERROR_MAP[error.code]
+      if (mapped) {
+        return reply.status(mapped.status).send({ error: mapped.message })
+      }
+      request.log.error(error, 'Erro Prisma não mapeado')
+      return reply.status(HttpStatus.INTERNAL_SERVER_ERROR).send({ error: 'Erro interno do servidor' })
     }
 
     if (error instanceof Prisma.PrismaClientValidationError) {

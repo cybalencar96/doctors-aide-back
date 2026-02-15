@@ -29,7 +29,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return reply.status(HttpStatus.FORBIDDEN).send({ error: 'Médico inativo' })
     }
 
-    const token = fastify.jwt.sign({ medico_id: medico.id, crm: medico.crm })
+    let token: string
+    try {
+      token = fastify.jwt.sign({ medico_id: medico.id, crm: medico.crm })
+    } catch (err) {
+      fastify.log.error({ err }, 'Erro ao gerar token JWT')
+      throw new AppError(HttpStatus.INTERNAL_SERVER_ERROR, 'Erro ao gerar token de autenticação')
+    }
 
     return { token, id: medico.id, nome_completo: medico.nome_completo, crm: medico.crm }
   })

@@ -4,7 +4,17 @@ import { saveBufferedFiles, saveBufferedAudio } from '../services/storage.servic
 import { processFiles } from '../services/file-processor.service.js'
 import { transcribeAudio } from '../services/ai/ai-client.js'
 import { runAgents } from '../services/ai/agents.js'
-import { AppError, HttpStatus, errorMessage } from '../errors.js'
+import { AppError, HttpStatus, errorMessage, isValidUUID, isErrorWithCode } from '../errors.js'
+import path from 'node:path'
+
+const ALLOWED_FILE_EXTENSIONS = new Set([
+  '.pdf', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif', '.gif',
+  '.txt', '.csv', '.doc', '.docx',
+])
+
+const ALLOWED_AUDIO_EXTENSIONS = new Set([
+  '.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm', '.ogg',
+])
 
 interface BufferedFile {
   buffer: Buffer
@@ -16,6 +26,14 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
 
   fastify.get('/medico/:id/atendimentos', async (request, reply) => {
     const { id } = request.params as { id: string }
+
+    if (!isValidUUID(id)) {
+      return reply.status(HttpStatus.BAD_REQUEST).send({ error: 'ID inválido' })
+    }
+
+    if (id !== request.user.medico_id) {
+      return reply.status(HttpStatus.FORBIDDEN).send({ error: 'Acesso negado' })
+    }
 
     let atendimentos
     try {
@@ -58,18 +76,35 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
         if (part.type === 'field') {
           fields[part.fieldname] = part.value as string
         } else if (part.type === 'file') {
-          const buffer = await part.toBuffer()
+          const ext = path.extname(part.filename).toLowerCase()
           if (part.fieldname === 'audio') {
+            if (!ALLOWED_AUDIO_EXTENSIONS.has(ext)) {
+              return reply.status(HttpStatus.BAD_REQUEST).send({
+                error: `Extensão de áudio não permitida: ${ext}`,
+              })
+            }
+            const buffer = await part.toBuffer()
             audioFile = { buffer, filename: part.filename }
           } else {
+            if (!ALLOWED_FILE_EXTENSIONS.has(ext)) {
+              return reply.status(HttpStatus.BAD_REQUEST).send({
+                error: `Extensão de arquivo não permitida: ${ext}`,
+              })
+            }
+            const buffer = await part.toBuffer()
             arquivoFiles.push({ buffer, filename: part.filename })
           }
         }
       }
     } catch (err) {
       fastify.log.error(err, 'Erro ao processar upload multipart')
-      return reply.status(HttpStatus.PAYLOAD_TOO_LARGE).send({
-        error: 'Erro no upload dos arquivos. Verifique o tamanho máximo (50 MB por arquivo, 10 arquivos).',
+      if (isErrorWithCode(err) && err.code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.status(HttpStatus.PAYLOAD_TOO_LARGE).send({
+          error: 'Arquivo excede o tamanho máximo permitido (50 MB).',
+        })
+      }
+      return reply.status(HttpStatus.BAD_REQUEST).send({
+        error: 'Erro ao processar upload dos arquivos.',
       })
     }
 
@@ -80,6 +115,25 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
 
     const user = request.user
     const { paciente_id, paciente_nome, consulta_anterior, observacoes } = parsed.data
+
+    let paciente
+    try {
+      paciente = await fastify.prisma.paciente.findUnique({
+        where: { id: paciente_id },
+        select: { medico_id: true },
+      })
+    } catch (err) {
+      fastify.log.error({ err, paciente_id }, 'Erro ao verificar paciente')
+      throw new AppError(HttpStatus.INTERNAL_SERVER_ERROR, 'Erro ao verificar paciente')
+    }
+
+    if (!paciente) {
+      return reply.status(HttpStatus.NOT_FOUND).send({ error: 'Paciente não encontrado' })
+    }
+
+    if (paciente.medico_id !== user.medico_id) {
+      return reply.status(HttpStatus.FORBIDDEN).send({ error: 'Acesso negado' })
+    }
 
     let atendimento
     try {
@@ -117,7 +171,7 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
       fastify.log.error(err, 'Erro ao salvar arquivos')
       await fastify.prisma.atendimento_mvp.update({
         where: { id: atendimento.id },
-        data: { status: 'erro' },
+        data: { status: 'erro', erro: 'Erro ao salvar arquivos' },
       })
       return reply.status(HttpStatus.INTERNAL_SERVER_ERROR).send({
         error: 'Erro ao salvar arquivos',
@@ -170,7 +224,7 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
         )
         await fastify.prisma.atendimento_mvp.update({
           where: { id: atendimento.id },
-          data: { status: 'erro' },
+          data: { status: 'erro', erro: errorMessage(err) },
         }).catch((dbErr: unknown) => {
           fastify.log.error(
             { err: errorMessage(dbErr), atendimento_id: atendimento.id },
@@ -186,6 +240,10 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
   fastify.get('/atendimento/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
 
+    if (!isValidUUID(id)) {
+      return reply.status(HttpStatus.BAD_REQUEST).send({ error: 'ID inválido' })
+    }
+
     let atendimento
     try {
       atendimento = await fastify.prisma.atendimento_mvp.findUnique({
@@ -200,6 +258,10 @@ export default async function atendimentosRoutes(fastify: FastifyInstance) {
       return reply.status(HttpStatus.NOT_FOUND).send({ error: 'Atendimento não encontrado' })
     }
 
-    return { status: atendimento.status, prontuario: atendimento.prontuario }
+    if (atendimento.medico_id !== request.user.medico_id) {
+      return reply.status(HttpStatus.FORBIDDEN).send({ error: 'Acesso negado' })
+    }
+
+    return { status: atendimento.status, prontuario: atendimento.prontuario, erro: atendimento.erro }
   })
 }

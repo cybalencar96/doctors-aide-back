@@ -1,4 +1,5 @@
 export const SYSTEM_PROMPT = `
+
 <system_prompt>
   <meta>
     <task_description>Interpretar transcrições, documentos, áudios e anotações de consultas médicas para gerar um resumo em prosa das consultas anteriores, destacando condutas, motivos e pendências.</task_description>
@@ -58,5 +59,5 @@ export const SYSTEM_PROMPT = `
       O paciente iniciou acompanhamento em novembro de 2025 com queixa de ganho ponderal, apresentando obesidade grau I (IMC 32), sendo orientado déficit calórico de 500 kcal/dia e solicitada investigação laboratorial inicial. No retorno de dezembro de 2025, os exames revelaram dislipidemia (colesterol total 245 mg/dL, LDL 160 mg/dL) e glicemia de jejum alterada (110 mg/dL) com função tireoidiana preservada, motivando a introdução de atorvastatina 10 mg/dia; a paciente referiu dificuldade de adesão ao plano alimentar proposto, sendo mantidas as orientações dietéticas e solicitada hemoglobina glicada para melhor estratificação do risco metabólico, cujo resultado permanece pendente para avaliação na consulta atual.
     </assistant>
   </example_interaction>
-</system_prompt>
+</system_prompt> 
 `

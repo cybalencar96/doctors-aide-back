@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { AppError, HttpStatus } from '../errors.js'
 
 const STORAGE_DIR = join(process.cwd(), 'storage')
@@ -31,7 +31,7 @@ export async function saveBufferedFiles(atendimentoId: string, files: BufferedFi
 
   const paths: string[] = []
   for (const file of files) {
-    const filePath = join(dir, file.filename)
+    const filePath = join(dir, basename(file.filename))
     await writeSafe(filePath, file.buffer, `${file.filename} do atendimento ${atendimentoId}`)
     paths.push(filePath)
   }
@@ -43,7 +43,7 @@ export async function saveBufferedAudio(atendimentoId: string, file: BufferedFil
   const dir = join(STORAGE_DIR, atendimentoId, 'audio')
   await ensureDir(dir, `áudio do atendimento ${atendimentoId}`)
 
-  const filePath = join(dir, file.filename)
+  const filePath = join(dir, basename(file.filename))
   await writeSafe(filePath, file.buffer, `${file.filename} do atendimento ${atendimentoId}`)
 
   return filePath

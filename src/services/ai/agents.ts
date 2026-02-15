@@ -36,6 +36,7 @@ export async function runAgents(input: AgentsInput): Promise<string> {
 
   const historicoEConsulta = consulta_anterior + '\n\n--- Dados da Consulta Atual ---\n\n' + contexto
 
+  // Phase 1: run all agents in parallel (except Clinical Summary)
   const settled = await Promise.allSettled([
     chatCompletion(EXTRACT_DRUGS, contexto),
     chatCompletion(ANALYZE_NUTRITION, contexto),
@@ -47,10 +48,9 @@ export async function runAgents(input: AgentsInput): Promise<string> {
     chatCompletion(EXTRACT_SLEEP, contexto),
     chatCompletion(EVOLUTION, contexto),
     chatCompletion(SUMMARIZE_HISTORY, consulta_anterior),
-    chatCompletion(CLINICAL_SUMMARY, contexto),
   ])
 
-  const results = settled.map((result, i) => {
+  const phase1Results = settled.map((result, i) => {
     if (result.status === 'fulfilled') {
       return result.value
     }
@@ -58,15 +58,26 @@ export async function runAgents(input: AgentsInput): Promise<string> {
     return ''
   })
 
-  if (results.every(r => r === '')) {
+  // Phase 2: Clinical Summary receives context + Summarize History output
+  const [drugs, nutrition, exercise, body, labExams, nonLabExams, feelings, sleep, evolution, historySum] = phase1Results
+
+  let clinicalSummary = ''
+  try {
+    const summaryInput = contexto + (historySum ? '\n\n--- Resumo Histórico ---\n\n' + historySum : '')
+    clinicalSummary = await chatCompletion(CLINICAL_SUMMARY, summaryInput)
+  } catch (err) {
+    console.error(`Agente "${AGENT_NAMES[10]}" falhou:`, errorMessage(err))
+  }
+
+  const allResults = [...phase1Results, clinicalSummary]
+
+  if (allResults.every(r => r === '')) {
     throw new AppError(HttpStatus.BAD_GATEWAY, 'Todos os agentes de IA falharam')
   }
 
-  const [agent1, agent2, agent3, agent4, agent5, agent6, agent7, agent8, agent9, agentA, agent10] = results
-
   return [
-    agentA, agent2, agent3, agent1,
-    agent4, agent5, agent6, agent7,
-    agent8, agent9, agent10,
+    historySum, nutrition, exercise, drugs,
+    body, labExams, nonLabExams, feelings,
+    sleep, evolution, clinicalSummary,
   ].join('\n\n')
 }
